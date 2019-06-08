@@ -66,7 +66,8 @@ def mtx2rvec(R):
     axis = np.cross(vt[0], vt[1])
     return axis * np.arctan2(s, c)
 
-def draw_str(dst, (x, y), s):
+def draw_str(dst, xy , s):
+    (x,y) = xy;
     cv2.putText(dst, s, (x+1, y+1), cv2.FONT_HERSHEY_PLAIN, 1.0, (0, 0, 0), thickness = 2, lineType=cv2.LINE_AA)
     cv2.putText(dst, s, (x, y), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 255), lineType=cv2.LINE_AA)
 
@@ -130,12 +131,12 @@ def clock():
 
 @contextmanager
 def Timer(msg):
-    print msg, '...',
-    start = clock()
+    print(msg, '...',
+    start = clock())
     try:
         yield
     finally:
-        print "%.2f ms" % ((clock()-start)*1000)
+        print("%.2f ms" % ((clock()-start)*1000))
 
 class StatValue:
     def __init__(self, smooth_coef = 0.5):
