@@ -11,8 +11,9 @@ Contact: tpluu2207 at gmail.com
 # http://www.lewansoul.com/download/list/55?page=2
 # =============================================================================
 # IMPORT PACKAGES
-import os, sys, datetime
+import os, sys, datetime, time
 import serial, numpy
+import threading
 # =============================================================================
 # SETTINGS and GLOBAL VARIABLES
 SERVO_ID_ALL = 0xfe
@@ -116,6 +117,7 @@ class lx16a(object):
     def __init__ (self, serialPort, ID):
         self._ID = ID
         self._serial = serialPort;
+        self._lock = threading.RLock();
         self._LIMIT_ID = [0, 254];
         self._LIMIT_ANGLE = [0, 240];        
         self._LIMIT_ANGLE_OFFSET = [-30, 30];
@@ -132,13 +134,14 @@ class lx16a(object):
         self._motor_mode = self.get_params(param = 'motor_mode');
         self._control_mode = self.get_control_mode();
         self._is_load = self.get_params(param = 'load_or_unload');
+# =============================================================================
     @property
     def serial(self):
         return self._serial
     @serial.setter
     def serial(self, serialPort):
         self._serial = serialPort;   
-        
+    
     @property
     def ID(self):
         return self._ID;
@@ -146,10 +149,10 @@ class lx16a(object):
     def ID(self, inputVal):
         if lx16a.is_out_of_range(inputVal, self._LIMIT_ID):
             raise servoError('Out of Range. Set ID: {}. Normal range: {}'.format(inputVal,
-                             self._LIMIT_ID))
+                            self._LIMIT_ID))
 #        Send CMD to modify the parameter
         msg = [CMD_HEADER,CMD_HEADER, self.ID, 
-               WLEN_ID_WRITE, CMD_ID_WRITE, inputVal];
+            WLEN_ID_WRITE, CMD_ID_WRITE, inputVal];
         self.sendMsg(msg);
 #        Upate Property
         self._ID = inputVal;
@@ -162,7 +165,7 @@ class lx16a(object):
         validInput = [0,1];
         if not inputVal in validInput:
             raise servoError('Invalid Input. Set value: {}. Accepted Value: {}'.format(inputVal,
-                             validInput))
+                            validInput))
         self.set_motor_mode(control_mode = inputVal, speed = self.speed);
 #        Update Property
         self._control_mode = inputVal;
@@ -174,7 +177,7 @@ class lx16a(object):
     def speed(self, inputVal):
         if lx16a.is_out_of_range(inputVal, self._LIMIT_SPEED):
             raise servoError('Out of Range. Set Speed: {}. Normal range: {}'.format(inputVal,
-                             self._LIMIT_SPEED))
+                            self._LIMIT_SPEED))
         self.set_motor_mode(control_mode = self.control_mode, speed = inputVal)
         self._speed = inputVal; 
         
@@ -186,7 +189,7 @@ class lx16a(object):
     def angle(self, inputVal):
         if lx16a.is_out_of_range(inputVal, self._LIMIT_ANGLE):
             raise servoError('Out of Range. Set angle: {}. Normal range: {}'.format(inputVal,
-                             self._LIMIT_ANGLE))
+                            self._LIMIT_ANGLE))
         self._angle = inputVal;
         
     @property
@@ -196,13 +199,13 @@ class lx16a(object):
     def angle_offset(self, inputVal):
         if lx16a.is_out_of_range(inputVal, self._LIMIT_ANGLE_OFFSET):
             raise servoError('Out of Range. Set offset angle: {}. Normal range: {}'.format(inputVal,
-                             self._LIMIT_ANGLE_OFFSET))
+                            self._LIMIT_ANGLE_OFFSET))
 #        Send CMD to modify the parameter
         setVal = int(lx16a.linMap(inputVal,self._LIMIT_ANGLE_OFFSET,[-125, 125]));
         if setVal < 0 : setVal += 256;
         print(setVal)
         msg = [CMD_HEADER,CMD_HEADER, self.ID, 
-               WLEN_ANGLE_OFFSET_ADJUST, CMD_ANGLE_OFFSET_ADJUST, setVal];
+            WLEN_ANGLE_OFFSET_ADJUST, CMD_ANGLE_OFFSET_ADJUST, setVal];
         self.sendMsg(msg);        
 #        Upate Property
         self._angle_offset = inputVal;
@@ -214,7 +217,7 @@ class lx16a(object):
     def vin(self, inputVal):
         if lx16a.is_out_of_range(inputVal, self._LIMIT_VIN):
             raise servoError('Out of Range. Set Input Voltage: {}. Normal range: {}'.format(inputVal,
-                             self._LIMIT_VIN))
+                            self._LIMIT_VIN))
         self._vin = inputVal;
         
     @property
@@ -243,84 +246,35 @@ class lx16a(object):
         print('\t Speed: {}'.format(self.speed))
         print('\t Motor Mode: {}'.format(self.motor_mode))
         print('\t Control Mode: {}-{}'.format(self.control_mode,
-              CONTROL_MODE[self.control_mode]))
+            CONTROL_MODE[self.control_mode]))
         print('\t Running: {}'.format(self.is_load))
         
 # =============================================================================
-       
+    
 # =============================================================================
 # METHODS
 # =============================================================================
-    def sendMsg(self,msg):
+    def sendMsg(self,cmdstr, **kwargs):
+        param = get_varargin(kwargs, 'param',None);
+        cmd, wlen, rlen = lx16a.get_cmd_code(cmdstr);
+        msg = [CMD_HEADER,CMD_HEADER, self.ID, wlen, cmd];
+        if param is None:
+            pass;
+        else:
+            for byteVal in param:
+                msg.append(byteVal);
         msg.append(lx16a.checksum(msg));
         msg = bytes(msg)
-        self.serial.write(msg)        
+        with self._lock:
+            self.serial.write(msg)
 # =============================================================================
     def get_params(self, **kwargs):
         param = get_varargin(kwargs, 'param', 'id');
         convert = get_varargin(kwargs, 'convert', False);
-        
-        if param == 'move_time':
-            cmd = CMD_MOVE_TIME_READ
-            wlen = WLEN_MOVE_TIME_READ
-            rlen = RLEN_MOVE_TIME_READ
-        elif param == 'move_time_wait':
-            cmd = CMD_MOVE_TIME_WAIT_READ
-            wlen = WLEN_MOVE_TIME_WAIT_READ
-            rlen = RLEN_MOVE_TIME_WAIT_READ
-        elif param == 'id':
-            cmd = CMD_ID_READ
-            wlen = WLEN_ID_READ
-            rlen = RLEN_ID_READ
-        elif param == 'angle_offset':
-            cmd = CMD_ANGLE_OFFSET_READ
-            wlen = WLEN_ANGLE_OFFSET_READ
-            rlen = RLEN_ANGLE_OFFSET_READ
-        elif param == 'angle_limit':
-            cmd = CMD_ANGLE_LIMIT_READ
-            wlen = WLEN_ANGLE_LIMIT_READ
-            rlen = RLEN_ANGLE_LIMIT_READ
-        elif param == 'vin_limit':
-            cmd = CMD_VIN_LIMIT_READ
-            wlen = WLEN_VIN_LIMIT_READ
-            rlen = RLEN_VIN_LIMIT_READ
-        elif param == 'temp_max_limit':
-            cmd = CMD_TEMP_MAX_LIMIT_READ
-            wlen = WLEN_TEMP_MAX_LIMIT_READ
-            rlen = RLEN_TEMP_MAX_LIMIT_READ
-        elif param == 'temp':
-            cmd = CMD_TEMP_READ
-            wlen = WLEN_TEMP_READ
-            rlen = RLEN_TEMP_READ
-        elif param == 'vin':
-            cmd = CMD_VIN_READ
-            wlen = WLEN_VIN_READ
-            rlen = RLEN_VIN_READ
-        elif param == 'pos':
-            cmd = CMD_POS_READ
-            wlen = WLEN_POS_READ
-            rlen = RLEN_POS_READ
-        elif param == 'motor_mode':
-            cmd = CMD_MOTOR_MODE_READ
-            wlen = WLEN_MOTOR_MODE_READ
-            rlen = RLEN_MOTOR_MODE_READ
-        elif param == 'load_or_unload':
-            cmd = CMD_LOAD_OR_UNLOAD_READ
-            wlen = WLEN_LOAD_OR_UNLOAD_READ
-            rlen = RLEN_LOAD_OR_UNLOAD_READ
-        elif param == 'led_ctrl':
-            cmd = CMD_LED_CTRL_READ
-            wlen = WLEN_LED_CTRL_READ
-            rlen = RLEN_LED_CTRL_READ
-        elif param == 'led_error':
-            cmd = CMD_LED_ERROR_READ
-            wlen = WLEN_LED_ERROR_READ
-            rlen = RLEN_LED_ERROR_READ
-        else:
-            pass
+        cmdstr = param.upper() + '_READ';
+        cmd, wlen, rlen = lx16a.get_cmd_code(cmdstr);
         rlen_param = rlen - wlen
-        msg = [CMD_HEADER,CMD_HEADER, self.ID, wlen, cmd];
-        self.sendMsg(msg);
+        self.sendMsg(cmdstr)
         returned_Bytes = []
         for i in range(rlen + 3):
             returned_Bytes.append(self.serial.read())
@@ -362,24 +316,31 @@ class lx16a(object):
         speed = get_varargin(kwargs, 'speed', 0);
         if speed < 0:
             speed += 2**16        
-        msg = [CMD_HEADER,CMD_HEADER, self.ID, 
-           WLEN_MOTOR_MODE_WRITE, CMD_MOTOR_MODE_WRITE,
-           control_mode, 0, lx16a.lowByte(speed), lx16a.highByte(speed)];
-        self.sendMsg(msg);
+#        msg = [CMD_HEADER,CMD_HEADER, self.ID, 
+#           WLEN_MOTOR_MODE_WRITE, CMD_MOTOR_MODE_WRITE,
+#           control_mode, 0, lx16a.lowByte(speed), lx16a.highByte(speed)];
+#        self.sendMsg(msg);
+        self.sendMsg('MOTOR_MODE_WRITE', 
+                    param = [control_mode, 0,
+                            lx16a.lowByte(speed), lx16a.highByte(speed)])
 # =============================================================================
     def set_position(self, angle):
 #        set_angle = lx16a.linMap(angle, self._LIMIT_ANGLE, self._LIMIT_SET_ANGLE)
 #        set_angle = lx16a.threshold(set_angle, self._LIMIT_SET_ANGLE);
-#        set_time = lx16a.threshold(set_angle/self.speed, self._LIMIT_SET_TIME)
-        set_angle = angle
+#        set_time = lx16a.threshold(set_angle/self.speed, self._LIMIT_SET_TIME)        
+        set_angle = int(angle)
+        print(set_angle)
         set_time = 0;
-        msg = [CMD_HEADER,CMD_HEADER, self.ID, 
-           WLEN_MOVE_TIME_WRITE, CMD_MOVE_TIME_WRITE,
-           lx16a.lowByte(set_angle), lx16a.highByte(set_angle),
-           lx16a.lowByte(set_time), lx16a.highByte(set_time)];
-        self.sendMsg(msg);
+#        msg = [CMD_HEADER,CMD_HEADER, self.ID, 
+#           WLEN_MOVE_TIME_WRITE, CMD_MOVE_TIME_WRITE,
+#           lx16a.lowByte(set_angle), lx16a.highByte(set_angle),
+#           lx16a.lowByte(set_time), lx16a.highByte(set_time)];
+#        self.sendMsg(msg);
+        self.sendMsg('MOVE_TIME_WRITE',
+                    param = [lx16a.lowByte(set_angle), lx16a.highByte(set_angle),
+                            lx16a.lowByte(set_time), lx16a.highByte(set_time)])
 # =============================================================================
-   
+
 # =============================================================================
 # STATIC METHODS
 # =============================================================================
@@ -387,6 +348,23 @@ class lx16a(object):
     def checkMsg(msg):
         if lx16a.checksum(msg[:-1]) != msg[-1]:
             print("Invalid checksum")
+# =============================================================================
+    @staticmethod
+    def get_cmd_code(cmdstr):
+        cmd = None;
+        wlen = None;
+        rlen = None;
+        _locals = locals();
+        exec('cmd = CMD_%s'%(cmdstr), globals(), _locals)
+        cmd = _locals['cmd']
+        exec('wlen = WLEN_%s' % (cmdstr), globals(), _locals);
+        wlen = _locals['wlen']
+        try:
+            exec('rlen = RLEN_%s' % (cmdstr), globals(), _locals);
+            rlen = _locals['rlen']
+        except:
+            pass;
+        return cmd, wlen, rlen
 # =============================================================================
     @staticmethod
     def lowByte(value):
@@ -437,25 +415,29 @@ class lx16a(object):
         return min(range_max, max(range_min, value))
 # =============================================================================
 # MAIN
-#from math import sin
+from math import sin
 def main():
+    print(lx16a.get_cmd_code('ID_WRITE'))
+#    print(cmd, wlen, rlen)
     serialPort = serial.Serial('COM7', 115200, timeout = 2)
     servo = lx16a(serialPort, 1)    
+    servo.show_motor_status()
     servo.control_mode = 0;
-    servo.speed = 500;    
-    servo.set_position(500)
+#    servo.speed = 200;    
+#    servo.set_position(240)
+    servo.control_mode
     print(servo.angle)
-#    t = 0;
-#    try:
-#        while True:
-#            pos = sin(t)*120;    
-#            servo.set_position(pos)
-#            t += 0.01
-#    except KeyboardInterrupt:
-#        servo.set_motor_mode(control_mode = 'position')
-#        print('Exit')
-    
+    t = 0;
+    try:
+        while True:
+            pos = lx16a.linMap(sin(t)*120+120, [0, 240], [0,1000]);
+            servo.set_position(pos)
+            t += 0.01
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        print('Exit')
 # =============================================================================
 # DEBUG
-if __name__ == '__main__':
+if __name__ == '__main__':    
     main()
+    
